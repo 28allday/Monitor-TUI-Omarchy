@@ -1,5 +1,13 @@
 # Monitor TUI - Omarchy
 
+## Video Guide
+
+<p align="center">
+  <a href="https://youtu.be/RDp3u_eZNa4">
+    <img src="https://img.youtube.com/vi/RDp3u_eZNa4/0.jpg" width="700">
+  </a>
+</p>
+
 A terminal user interface for managing monitor settings in [Omarchy](https://omarchy.com) (Hyprland). Change resolution, scaling, position, and refresh rate without editing config files.
 
 ## Quick Start
