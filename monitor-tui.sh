@@ -1080,35 +1080,27 @@ install_setup() {
         script_path="$INSTALL_PATH"
     fi
 
-    # Detect preferred terminal (use --title for window rules matching)
-    local terminal_cmd=""
-    if command -v ghostty >/dev/null 2>&1; then
-        terminal_cmd="ghostty --title='Monitor Settings' -e"
-    elif command -v kitty >/dev/null 2>&1; then
-        terminal_cmd="kitty --title='Monitor Settings' -e"
-    elif command -v alacritty >/dev/null 2>&1; then
-        terminal_cmd="alacritty --title='Monitor Settings' -e"
-    elif command -v foot >/dev/null 2>&1; then
-        terminal_cmd="foot --title='Monitor Settings' --"
-    else
-        u_echo "${RED}No supported terminal found (ghostty, kitty, alacritty, foot)${NC}"
-        return 1
-    fi
+    # Launch via xdg-terminal-exec with a dedicated app-id so Hyprland can match
+    # and float the window by class. This is the Omarchy way (terminal-agnostic):
+    # do NOT hardcode `ghostty --class=...`, because ghostty rejects app-ids that
+    # aren't valid GTK IDs (no dot) and silently falls back to com.mitchellh.ghostty,
+    # so the float rule never matches.
+    local launch_cmd="xdg-terminal-exec --app-id=monitor-tui -e"
 
     # Add keybinding and window rules if not already present
     if [ -f "$BINDINGS_FILE" ]; then
         if ! grep -q "monitor-tui" "$BINDINGS_FILE"; then
             u_echo "${YELLOW}Adding keybinding (Super+Alt+M) to $BINDINGS_FILE${NC}"
 
-            # Add window rules AND keybinding to bindings.conf (match on title)
+            # Add window rules AND keybinding to bindings.conf (match on class)
             {
                 echo ""
                 echo "# Monitor Configuration TUI"
-                echo "windowrule = match:title Monitor Settings, float on"
-                echo "windowrule = match:title Monitor Settings, size 800 600"
-                echo "windowrule = match:title Monitor Settings, center on"
-                echo "windowrule = match:title Monitor Settings, pin on"
-                echo "bindd = SUPER ALT, M, Monitor Settings, exec, $terminal_cmd \"$script_path\""
+                echo "windowrule = float on,  match:class ^(monitor-tui)$"
+                echo "windowrule = center on, match:class ^(monitor-tui)$"
+                echo "windowrule = size 800 600, match:class ^(monitor-tui)$"
+                echo "windowrule = pin on,    match:class ^(monitor-tui)$"
+                echo "bindd = SUPER ALT, M, Monitor Settings, exec, $launch_cmd \"$script_path\""
                 echo "# End Monitor Configuration TUI"
             } >> "$BINDINGS_FILE"
             u_echo "${GREEN}Keybinding and window rules added!${NC}"
@@ -1150,11 +1142,11 @@ install_setup() {
         # Add binding and window rules dynamically (avoid full reload which breaks multi-monitor workspace switching)
         # Unbind first to prevent duplicate bindings, then add fresh
         hyprctl keyword unbind "SUPER ALT, M" >/dev/null 2>&1
-        hyprctl keyword windowrule "match:title Monitor Settings, float on" >/dev/null 2>&1
-        hyprctl keyword windowrule "match:title Monitor Settings, size 800 600" >/dev/null 2>&1
-        hyprctl keyword windowrule "match:title Monitor Settings, center on" >/dev/null 2>&1
-        hyprctl keyword windowrule "match:title Monitor Settings, pin on" >/dev/null 2>&1
-        hyprctl keyword bindd "SUPER ALT, M, Monitor Settings, exec, $terminal_cmd \"$script_path\"" >/dev/null 2>&1
+        hyprctl keyword windowrule "float on, match:class ^(monitor-tui)$" >/dev/null 2>&1
+        hyprctl keyword windowrule "center on, match:class ^(monitor-tui)$" >/dev/null 2>&1
+        hyprctl keyword windowrule "size 800 600, match:class ^(monitor-tui)$" >/dev/null 2>&1
+        hyprctl keyword windowrule "pin on, match:class ^(monitor-tui)$" >/dev/null 2>&1
+        hyprctl keyword bindd "SUPER ALT, M, Monitor Settings, exec, $launch_cmd \"$script_path\"" >/dev/null 2>&1
         echo ""
         u_echo "${GREEN}Press Super+Alt+M to open this TUI.${NC}"
     else
@@ -1179,11 +1171,12 @@ uninstall() {
     if [ -f "$BINDINGS_FILE" ]; then
         # Primary cleanup: remove the marked block
         sed -i '/# Monitor Configuration TUI/,/# End Monitor Configuration TUI/d' "$BINDINGS_FILE"
-        # Fallback: remove any remaining monitor-tui.sh references only
-        sed -i '/monitor-tui\.sh/d' "$BINDINGS_FILE"
-        # Fallback: remove exact title match rules (be specific to avoid collateral damage)
+        # Fallbacks if the marked block was manually edited. Covers every form
+        # this tool has ever written: bindd line, class rules, old Downloads
+        # path, and the legacy title-based rules.
+        sed -i '/monitor-tui/d' "$BINDINGS_FILE"
         sed -i '/title:\^Monitor Settings\$/d' "$BINDINGS_FILE"
-        sed -i '/match:title Monitor Settings/d' "$BINDINGS_FILE"
+        sed -i '/match:title \^\?Monitor Settings\$\?/d' "$BINDINGS_FILE"
         c_echo "${GREEN}Keybinding and window rules removed.${NC}"
     fi
 
