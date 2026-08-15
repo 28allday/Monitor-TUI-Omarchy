@@ -5,7 +5,7 @@
   "version": "0.3.0",
   "author": "Gavin Nugent",
   "license": "MIT",
-  "description": "One panel for everything display: brightness, text size, and per-monitor resolution, refresh, scale, position, rotation, VRR and on/off — applied live via hyprctl, saved to ~/.config/hypr/monitors.conf. Replaces the first-party Display bar icon on first open. Summon with: omarchy-shell shell toggle nosignal.monitor-settings",
+  "description": "One panel for everything display: brightness, text size, main-monitor switch, drag-to-arrange layout, and per-monitor resolution, refresh, scale, position, rotation, VRR and on/off — applied live via hyprctl, saved to ~/.config/hypr/monitors.lua. Replaces the first-party Display bar icon on first open. Summon with: omarchy-shell shell toggle nosignal.monitor-settings",
   "kinds": [
     "panel",
     "bar-widget"

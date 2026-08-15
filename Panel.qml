@@ -183,6 +183,8 @@ Item {
     root.ensureTakeover()
     root.selectedIndex = -1
     root.lastError = ""
+    root.arranging = false
+    root.brightTouched = false
     root.refresh()
     if (!brightProbeProc.running) brightProbeProc.running = true
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
@@ -192,6 +194,9 @@ Item {
     if (!root.opened) return
     root.opened = false
     root.closeChooser()
+    // Don't let an abandoned arrange session survive a close — reopening
+    // would show (and Enter would APPLY) geometry captured before the close.
+    root.cancelArrange()
     // Keep the host's openPanelIds in sync so an Esc-closed panel doesn't
     // wrongly self-restore on the next delegate rebuild.
     if (root.shell && typeof root.shell.hide === "function")
@@ -283,6 +288,8 @@ Item {
         if (root.monitors[i].focused === true) { root.focusedName = root.monitors[i].name; break }
     } catch (e) {
       root.monitors = []
+      root.focusedName = ""
+      root.lastError = "Couldn't read monitor state"
     }
     root.loaded = true
     root.rebuildItems()
@@ -307,13 +314,17 @@ Item {
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
-        // Ignore a stale probe result if the user is mid-adjust — the value
-        // we last wrote is authoritative.
-        if (brightDebounce.running || brightProc.running) return
         var t = String(text || "").trim()
+        // An empty/failed read never REMOVES an existing row — DDC reads are
+        // flaky, and yanking the row would reshuffle every list index.
+        if (!/^\d+$/.test(t)) return
+        // The probe can land up to ~12s after open; if the user has adjusted
+        // brightness since, the value they set is authoritative, not this
+        // snapshot from before their keypresses.
+        if (root.brightTouched) return
         var had = root.brightness >= 0
-        root.brightness = /^\d+$/.test(t) ? Math.max(0, Math.min(100, parseInt(t, 10))) : -1
-        if (had !== (root.brightness >= 0)) root.rebuildItems()
+        root.brightness = Math.max(0, Math.min(100, parseInt(t, 10)))
+        if (!had) root.rebuildItems()
       }
     }
   }
@@ -328,6 +339,16 @@ Item {
   // ------------------------------------------------------------- row model
 
   function rebuildItems() {
+    // With nothing to configure (no jq, no monitors) the empty-state note is
+    // the whole UI — config rows would render underneath it and still be
+    // activatable.
+    if (root.noJq || root.monitors.length === 0) {
+      root.items = []
+      root.selectedIndex = -1
+      hoverGate.reset()
+      return
+    }
+
     var rows = []
     var multi = root.monitors.length > 1
 
@@ -384,13 +405,27 @@ Item {
       rows.push({ kind: "action", act: "restore",
                   label: "Restore previous monitors.lua", value: "" })
 
+    // Re-find the selected ROW, not the selected index: a rebuild that adds
+    // or removes rows (monitor disabled, brightness row appearing, hotplug)
+    // would otherwise leave the cursor on whatever now occupies the old
+    // index — and a queued Enter would activate the wrong row.
+    var prev = root.isSelectable(root.selectedIndex) ? root.items[root.selectedIndex] : null
     root.items = rows
     hoverGate.reset()
 
-    if (!root.isSelectable(root.selectedIndex)) {
-      root.selectedIndex = root.firstSelectable()
-      root.scrollTo(root.selectedIndex)
+    var idx = -1
+    if (prev) {
+      for (var k = 0; k < rows.length; k++) {
+        var r = rows[k]
+        if (r.kind === prev.kind && (r.key || "") === (prev.key || "")
+            && (r.mon || "") === (prev.mon || "") && (r.act || "") === (prev.act || "")) {
+          idx = k
+          break
+        }
+      }
     }
+    root.selectedIndex = idx >= 0 ? idx : root.firstSelectable()
+    root.scrollTo(root.selectedIndex)
   }
 
   function statusLine() {
@@ -453,8 +488,12 @@ Item {
   }
 
   function scrollTo(i) {
-    if (!root.isSelectable(i)) return
     var contentH = root.listContentH
+    // Clamp first: content that shrank below the old scroll offset would
+    // otherwise show dead space until the next manual scroll.
+    if (list.contentY > Math.max(0, contentH - list.height))
+      list.contentY = Math.max(0, contentH - list.height)
+    if (!root.isSelectable(i)) return
     if (contentH <= list.height) { list.contentY = 0; return }
 
     var y = root.rowOffset(i)
@@ -487,13 +526,14 @@ Item {
   function openChooser(title, subtitle, kind, mon, options) {
     var start = 0
     for (var i = 0; i < options.length; i++) if (options[i].current) { start = i; break }
+    hoverGate.reset()
     root.chooser = { title: title, subtitle: subtitle, kind: kind, mon: mon, options: options }
     root.chooserIndex = start
     Qt.callLater(function() { root.chooserScrollTo(start) })
   }
 
   function moveChooser(dir) {
-    if (!root.chooser) return
+    if (!root.chooser || root.chooser.options.length === 0) return
     var n = root.chooser.options.length
     root.chooserIndex = (root.chooserIndex + dir + n) % n
     root.chooserScrollTo(root.chooserIndex)
@@ -539,6 +579,11 @@ Item {
       seen[nm] = true
       out.push({ label: nm + "Hz" + (nm === cur ? "   — current" : ""), value: nm, current: nm === cur })
     }
+    // Some outputs (headless test monitors included) report no modes at all;
+    // a blank chooser with no exit but Esc is worse than showing the current
+    // mode as the only choice.
+    if (out.length === 0)
+      out.push({ label: cur + "Hz   — current", value: cur, current: true })
     return out
   }
 
@@ -585,7 +630,10 @@ Item {
       if (root.monitors[i].name !== m.name && root.monitors[i].disabled !== true)
         others.push(root.monitors[i])
 
-    var maxRight = 0, minX = 0, minY = 0, maxBottom = 0
+    // Extents start at ±Infinity, not 0 — mid-session the other monitors can
+    // all sit at positive (or all at negative) coordinates, and a 0 seed
+    // would compute "left of"/"right of" against the origin instead of them.
+    var maxRight = -Infinity, minX = Infinity, minY = Infinity, maxBottom = -Infinity
     for (var k = 0; k < others.length; k++) {
       var o = others[k]
       var r = o.x + root.logicalW(o)
@@ -595,6 +643,7 @@ Item {
       if (o.y < minY) minY = o.y
       if (b > maxBottom) maxBottom = b
     }
+    if (others.length === 0) { maxRight = 0; minX = 0; minY = 0; maxBottom = 0 }
 
     var left = (minX - root.logicalW(m)) + "x0"
     var above = "0x" + (minY - root.logicalH(m))
@@ -680,28 +729,41 @@ Item {
   }
 
   // Debounced so holding → doesn't stack brightnessctl calls; the panel's
-  // local value is authoritative until the write lands (see parseState).
+  // local value is authoritative until the write lands. DDC writes can take
+  // seconds, so a set arriving while one is in flight is QUEUED and re-run
+  // with the latest value when the process exits — last write always wins.
+  property bool brightTouched: false  // user adjusted since this open
+  property bool brightQueued: false
+
   function setBrightness(v) {
     if (root.brightness < 0) return
     var p = Math.max(1, Math.min(100, Math.round(v)))
     root.brightness = p
+    root.brightTouched = true
     brightDebounce.restart()
+  }
+
+  function startBrightWrite() {
+    if (brightProc.running) { root.brightQueued = true; return }
+    root.brightQueued = false
+    brightProc.command = ["omarchy-brightness-display", "--no-osd",
+                          "--monitor", root.focusedName, root.brightness + "%"]
+    brightProc.running = true
   }
 
   Timer {
     id: brightDebounce
     interval: 180
     repeat: false
-    onTriggered: {
-      brightProc.command = ["omarchy-brightness-display", "--no-osd",
-                            "--monitor", root.focusedName, root.brightness + "%"]
-      if (!brightProc.running) brightProc.running = true
-    }
+    onTriggered: root.startBrightWrite()
   }
 
   Process {
     id: brightProc
     stdout: StdioCollector { waitForEnd: true }
+    onRunningChanged: {
+      if (!running && root.brightQueued) root.startBrightWrite()
+    }
   }
 
   // Style picks the new base size up through its own file watch — the whole
@@ -942,15 +1004,25 @@ Item {
   // each — "ok" or the reason it refused, which lands on the status line.
   property var applyQueue: []
 
+  // Appends rather than replaces: a multi-spec batch (preset, set-main,
+  // arrange) mid-flight must not have its tail dropped by the next apply —
+  // half of a set-main is an overlap nobody asked for.
   function runApply(specs) {
     root.lastError = ""
-    root.applyQueue = specs.slice()
+    root.applyQueue = root.applyQueue.concat(specs)
     root.applyNext()
   }
 
+  // Set only by a confirmed "ok" from hyprctl, so a refused change doesn't
+  // flag the session as having unsaved changes.
+  property bool applySucceeded: false
+
   function applyNext() {
     if (root.applyQueue.length === 0) {
-      root.dirty = true
+      if (root.applySucceeded) {
+        root.applySucceeded = false
+        root.dirty = true
+      }
       refreshDelay.restart()
       return
     }
@@ -970,6 +1042,8 @@ Item {
         var out = String(text || "").trim()
         if (out !== "" && out.toLowerCase() !== "ok")
           root.lastError = out.split("\n")[0]
+        else
+          root.applySucceeded = true
         root.applyNext()
       }
     }
@@ -1114,6 +1188,8 @@ Item {
       id: labelText
       anchors.left: glyph.right
       anchors.verticalCenter: parent.verticalCenter
+      // Bounded so elide actually engages instead of squeezing the value.
+      width: Math.min(implicitWidth, Math.max(0, rowItem.width * 0.6))
       text: rowItem.rowData ? String(rowItem.rowData.label) : ""
       color: rowItem.selected ? root.selText : root.foreground
       font.family: root.fontFamily
@@ -1326,8 +1402,11 @@ Item {
           opacity: 0.8
         }
 
+        // hoverEnabled so the scrim eats hover too — list rows underneath
+        // must not keep tracking the cursor while the chooser is up.
         MouseArea {
           anchors.fill: parent
+          hoverEnabled: true
           onClicked: root.closeChooser()
         }
 
@@ -1449,7 +1528,11 @@ Item {
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onEntered: root.chooserIndex = optRow.index
+                    // Gated like the main list: options scrolled under a
+                    // stationary cursor by ↑↓ must not yank the selection.
+                    onPositionChanged: function(mouse) {
+                      if (hoverGate.moved(this, mouse)) root.chooserIndex = optRow.index
+                    }
                     onClicked: root.pickChooser(optRow.modelData)
                   }
                 }
@@ -1493,6 +1576,7 @@ Item {
 
         MouseArea {
           anchors.fill: parent
+          hoverEnabled: true
           onClicked: root.cancelArrange()
         }
 
@@ -1530,7 +1614,7 @@ Item {
 
             Text {
               width: parent.width
-              text: "Drag the boxes — edges snap to neighbours. The 󰓎 box sits at 0,0 (main)."
+              text: "Drag the boxes — edges snap to neighbours. 󰓎 marks the box at the layout's top-left corner; it lands at 0,0 (main) on apply."
               color: root.foreground
               opacity: 0.45
               font.family: root.fontFamily
@@ -1605,13 +1689,27 @@ Item {
                 }
 
                 MouseArea {
+                  id: monDrag
                   anchors.fill: parent
                   cursorShape: Qt.SizeAllCursor
                   drag.target: monRect
-                  onPressed: root.arrangeSel = monRect.index
-                  onReleased: root.commitArrangeRect(monRect.index,
-                    (monRect.x - arrCanvas.offX) / arrCanvas.sc + arrCanvas.bMinX,
-                    (monRect.y - arrCanvas.offY) / arrCanvas.sc + arrCanvas.bMinY)
+                  property real pressX: 0
+                  property real pressY: 0
+                  onPressed: {
+                    root.arrangeSel = monRect.index
+                    monDrag.pressX = monRect.x
+                    monDrag.pressY = monRect.y
+                  }
+                  // A plain click only selects — committing would run the
+                  // snapper and "correct" a deliberate sub-threshold offset
+                  // the user never touched.
+                  onReleased: {
+                    if (Math.abs(monRect.x - monDrag.pressX) < 3
+                        && Math.abs(monRect.y - monDrag.pressY) < 3) return
+                    root.commitArrangeRect(monRect.index,
+                      (monRect.x - arrCanvas.offX) / arrCanvas.sc + arrCanvas.bMinX,
+                      (monRect.y - arrCanvas.offY) / arrCanvas.sc + arrCanvas.bMinY)
+                  }
                 }
               }
             }
