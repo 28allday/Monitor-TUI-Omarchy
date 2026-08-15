@@ -1,6 +1,99 @@
-# Monitor TUI - Omarchy
+# Monitor Settings — Omarchy plugin
 
-## Video Guide
+A native [omarchy-shell](https://omarchy.com) plugin for managing monitor settings on Omarchy 4 (Hyprland). One panel for everything display: brightness, text size, and per-monitor resolution, refresh rate, scaling, position, rotation, VRR and on/off — no terminal, no config editing.
+
+It's a superset of the stock **Display** panel, so on first open it retires the first-party `omarchy.monitor` bar icon (once — see [One display panel, not two](#one-display-panel-not-two)).
+
+<p align="center">
+  <img src="docs/panel.png" width="700">
+</p>
+
+> **v0.2.0 rewrote this project.** It used to be a bash TUI (`monitor-tui.sh`); it is now a QML panel with a bar icon, installed through Omarchy's plugin system. The old TUI lives in git history — if you had it installed, see [Migrating from the TUI](#migrating-from-the-tui).
+
+## Install
+
+```bash
+omarchy plugin add https://github.com/28allday/Monitor-TUI-Omarchy.git
+```
+
+Say yes to enabling it and pick a bar section — a 󰍹 icon appears in the bar. Click it to open the panel.
+
+Optionally bind a key in `~/.config/hypr/bindings.lua`:
+
+```lua
+o.bind("SUPER + ALT + M", "Monitor settings", "omarchy-shell shell toggle nosignal.monitor-settings")
+```
+
+## Features
+
+| Feature | Description |
+|---------|-------------|
+| **Brightness** | Laptop backlight or DDC/CI for external monitors, on the focused display — `←`/`→` nudges in 5% steps. The row only appears when a controllable backlight exists |
+| **Text size** | The shell/app base font size, same stops as the stock Display panel |
+| **Resolution** | Pick from all modes your monitor reports (deduplicated, refresh rounded) |
+| **Refresh rate** | Part of the mode picker — 60Hz, 144Hz, 240Hz, whatever the panel offers |
+| **Scaling** | Presets from 1x to 2x, including the fractional ones Hyprland accepts |
+| **Position** | Auto, left/right/above/below the other monitors — coordinates computed from their *logical* (scaled, rotated) sizes |
+| **Rotation** | Normal, 90°, 180°, 270° |
+| **VRR** | Toggle Variable Refresh Rate (FreeSync/G-Sync) per monitor |
+| **Display on/off** | Enable/disable individual monitors (the last enabled one is protected) |
+| **Live preview** | Every change applies instantly via `hyprctl eval "hl.monitor({…})"` — nothing touches disk until you save |
+| **Save / restore** | One row writes the live layout into a marked block in `monitors.lua` (backing up the file first); another restores the backup. Disabled monitors are saved disabled |
+| **Quick presets** | Apply the same scale to every monitor at its preferred resolution |
+
+## One display panel, not two
+
+This panel does everything the first-party **Display** panel (`omarchy.monitor`) does, so running both means two bar icons with overlapping jobs. On its first open, the plugin disables the first-party icon — exactly once, recorded in `~/.local/state/nosignal-monitor-settings/`. If you want the stock panel back:
+
+```bash
+omarchy plugin enable omarchy.monitor
+```
+
+and it stays back — the marker stops the plugin from taking it away again.
+
+The stock `SUPER + CTRL + D` binding targets the first-party panel, so re-point it in `~/.config/hypr/bindings.lua`:
+
+```lua
+o.bind("SUPER + CTRL + D", "Display", "omarchy-shell shell toggle nosignal.monitor-settings")
+```
+
+## How it works
+
+1. Reads live monitor data from `hyprctl monitors -j`
+2. Picking a value applies it immediately with `hyprctl eval 'hl.monitor({…})'` (`hyprctl keyword` is dead under Omarchy 4's Lua config) — the panel marks the session as having unsaved changes
+3. **Save current layout** serializes what's actually on screen into a marker-bracketed block of `hl.monitor()` lines in `~/.config/hypr/monitors.lua` — the file Omarchy 4 actually loads — keeping the previous file as `monitors.lua.bak`. Your own lines outside the block are untouched
+4. **Restore previous monitors.lua** puts the backup back and runs `hyprctl reload`
+
+Because nothing is written until you save, a change that goes wrong is undone by picking the old value again — or closing the panel and running `hyprctl reload`.
+
+## Keys
+
+`↑↓`/`jk` move · `←→`/`hl` adjust sliders · `↵` change / toggle / run · `s` save · `r` refresh · `esc` close
+
+## Dependencies
+
+Everything ships with Omarchy 4: `hyprctl`, `jq`, and omarchy-shell itself. There is nothing to install.
+
+## Migrating from the TUI
+
+If you installed the old `monitor-tui.sh` (≤ v0.1), remove its keybinding and installed script first:
+
+```bash
+./monitor-tui-uninstall.sh
+```
+
+The old `monitors.conf` the TUI wrote is ignored by Omarchy 4 anyway — the plugin saves to `monitors.lua`, the file Hyprland actually reads.
+
+## Uninstall
+
+```bash
+omarchy plugin remove nosignal.monitor-settings
+omarchy plugin enable omarchy.monitor   # bring the stock Display icon back
+```
+
+## Video guide (legacy TUI)
+
+The original video shows the old terminal version. The workflow is the same — pick a monitor, pick a setting, save — just prettier now.
 
 <p align="center">
   <a href="https://youtu.be/RDp3u_eZNa4">
@@ -8,125 +101,6 @@
   </a>
 </p>
 
-A terminal user interface for managing monitor settings in [Omarchy](https://omarchy.com) (Hyprland). Change resolution, scaling, position, and refresh rate without editing config files.
+## Licence
 
-## Quick Start
-
-```bash
-git clone https://github.com/28allday/Monitor-TUI-Omarchy.git
-cd Monitor-TUI-Omarchy
-chmod +x monitor-tui.sh
-./monitor-tui.sh
-```
-
-On first run, the script installs itself to `~/.local/bin/monitor-tui` and adds a keybind (**SUPER+ALT+M**) so you can open it anytime.
-
-## Features
-
-| Feature | Description |
-|---------|-------------|
-| **Resolution** | Choose from all available modes reported by your monitor |
-| **Refresh rate** | Select from supported rates (60Hz, 144Hz, 240Hz, etc.) |
-| **Scaling** | Preset options (1x, 1.25x, 1.5x, 2x) or custom values |
-| **Position** | Auto, left, right, above, below, or custom coordinates |
-| **VRR** | Enable/disable Variable Refresh Rate (FreeSync/G-Sync) |
-| **Multi-monitor** | Configure each display independently, auto-calculate positions |
-| **Live preview** | Changes apply instantly — no restart needed |
-| **Backup/restore** | Automatic backup before changes, easy restore |
-
-## How It Works
-
-1. Reads live monitor data from `hyprctl monitors -j`
-2. Shows a menu with your current settings and available options
-3. Applies changes instantly via `hyprctl keyword` (live, no restart)
-4. Saves to `~/.config/hypr/monitors.conf` for persistence across reboots
-
-## Keybind
-
-After installation, press **SUPER+ALT+M** to open the monitor TUI from anywhere.
-
-The keybind is added to `~/.config/hypr/bindings.conf` inside a marked block so it can be cleanly removed by the uninstaller.
-
-## Dependencies
-
-| Dependency | Purpose | Included in Omarchy? |
-|-----------|---------|---------------------|
-| `hyprctl` | Reads monitor info and applies changes | Yes (comes with Hyprland) |
-| `jq` | Parses JSON output from hyprctl | Yes |
-| `bc` | Floating-point math for scale calculations | Usually yes |
-
-## Multi-Monitor Setup
-
-When you have multiple monitors, the TUI:
-
-1. Shows all connected displays with their current settings
-2. Lets you configure each one independently
-3. Auto-calculates position when you choose "Right of", "Above", or "Below"
-4. Accounts for scaling when calculating positions (uses logical pixels)
-
-### Position Calculation
-
-The TUI calculates positions using logical (scaled) dimensions, not raw pixels. For example:
-- A 4K monitor at 2x scale = 1920 logical pixels wide
-- A 1080p monitor at 1x scale = 1920 logical pixels wide
-- Placing the 1080p monitor to the right: position = 1920x0
-
-## Files
-
-| Path | Purpose |
-|------|---------|
-| `~/.local/bin/monitor-tui` | Installed script |
-| `~/.config/hypr/monitors.conf` | Monitor configuration (edited by TUI) |
-| `~/.config/hypr/monitors.conf.bak` | Automatic backup before changes |
-| `~/.config/hypr/bindings.conf` | Keybind added here (SUPER+ALT+M) |
-| `~/.config/hypr/.monitor-tui-installed` | Marker file tracking installation |
-
-## Uninstalling
-
-```bash
-chmod +x monitor-tui-uninstall.sh
-./monitor-tui-uninstall.sh
-```
-
-This removes:
-- The installed script from `~/.local/bin/`
-- The keybind from `~/.config/hypr/bindings.conf`
-- The window rules from Hyprland config
-- The installation marker
-
-Your monitor configuration (`monitors.conf`) is **not** removed.
-
-## Troubleshooting
-
-### TUI shows "No monitors detected"
-
-- Make sure you're running inside Hyprland: `echo $XDG_CURRENT_DESKTOP`
-- Check hyprctl works: `hyprctl monitors`
-
-### Changes don't persist after reboot
-
-- Check the config file was written: `cat ~/.config/hypr/monitors.conf`
-- Make sure `monitors.conf` is sourced in your main config:
-  ```
-  # In ~/.config/hypr/hyprland.conf
-  source = ~/.config/hypr/monitors.conf
-  ```
-
-### Scale looks wrong
-
-- Hyprland works best with specific scale values: 1, 1.25, 1.333333, 1.5, 1.666667, 1.75, 2
-- Fractional scaling can cause blurry text in some XWayland apps
-
-### SUPER+ALT+M doesn't work
-
-- Check the keybind was added: `grep "monitor-tui" ~/.config/hypr/bindings.conf`
-- Reload Hyprland: `hyprctl reload`
-
-## Credits
-
-- [Omarchy](https://omarchy.com) - The Arch Linux distribution this was built for
-- [Hyprland](https://hyprland.org/) - Wayland compositor
-
-## License
-
-This project is provided as-is for the Omarchy community.
+MIT
