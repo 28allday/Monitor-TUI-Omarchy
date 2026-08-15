@@ -1,0 +1,22 @@
+#!/bin/sh
+# Mock hyprctl for the unit suite (test/run-tests.sh).
+# Serves canned monitor JSON from $MOCK_MONITORS_JSON and records calls,
+# so monitors.sh can be exercised with no compositor anywhere near.
+case "$1" in
+monitors)
+    # monitors.sh uses `monitors all -j` (state/save) and `monitors -j`
+    # (brightness focused-monitor lookup). Same fixture serves both.
+    cat "${MOCK_MONITORS_JSON:?MOCK_MONITORS_JSON not set}"
+    ;;
+reload)
+    : "${MOCK_LOG:?}" && echo "reload" >> "$MOCK_LOG"
+    ;;
+eval)
+    : "${MOCK_LOG:?}" && echo "eval $2" >> "$MOCK_LOG"
+    echo ok
+    ;;
+*)
+    echo "mock hyprctl: unhandled: $*" >&2
+    exit 1
+    ;;
+esac

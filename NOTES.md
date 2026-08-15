@@ -80,9 +80,28 @@ to `/run/user/$UID/quickshell/by-pid/*/log.log`, not the terminal.
 Checks before shipping:
 
 ```bash
-shellcheck monitors.sh
+shellcheck monitors.sh test/run-tests.sh test/integration.sh
 omarchy plugin validate .
+sh test/run-tests.sh              # unit suite — safe anywhere, no Hyprland
+RUN_LIVE=1 sh test/integration.sh # live suite — FLICKERS REAL DISPLAYS
 ```
+
+**Test suite (test/):**
+- `run-tests.sh` — 22 unit checks on monitors.sh with a mock hyprctl
+  (`test/mock/`) and a temp $HOME, so it runs anywhere jq exists and never
+  touches real config: block writing, wildcard/user-line preservation,
+  double-save idempotency, lid-safe internal-panel rule, disabled-external
+  persistence, carry-over of unplugged outputs (incl. no-duplicate + its
+  own idempotency), refusal on empty state, restore round-trip, state JSON.
+- `integration.sh` — 11 live checks against the running session (guarded
+  by RUN_LIVE=1; snapshots the full layout + config first and restores
+  both via an EXIT trap): mode/position/rotation applies, disable,
+  the implicit-vs-explicit `disabled = false` eval semantics (fails loudly
+  if Hyprland ever changes it), batched multi-monitor apply, lid-safe save
+  against real state, live save idempotency, restore. Multi-monitor cases
+  self-skip on a single head. What it CANNOT see: Hyprland's overlap
+  banner (screen-only) and everything mouse-driven — those stay on the
+  manual checklist below.
 
 **Testing multi-monitor UI on a single-monitor box:** Hyprland can fake a
 display — `hyprctl output create headless TESTMON` (remove with
@@ -147,6 +166,17 @@ removing the headless one if you tested "set main".
   Deliberately disabled *external* outputs still persist as disabled.
   Trade-off: an internal panel disabled by hand in the panel comes back on
   the next config reload — safe beats sticky for the built-in screen.
+- **VRR has three gates and the panel only controls one.** The per-monitor
+  `vrr` flag does nothing unless (a) the display link actually offers
+  adaptive sync — check `edid-decode /sys/class/drm/<conn>/edid` for an
+  Adaptive Sync block; FreeSync-over-HDMI is an AMD extension NVIDIA's
+  driver won't do, so a FreeSync monitor on an NVIDIA HDMI port reads as
+  no-VRR — and (b) Hyprland's global `misc.vrr` is enabled (default 0 =
+  off; runtime: `hyprctl eval "hl.config({ [\"misc.vrr\"] = 1 })"`).
+  With the global off the per-monitor toggle "works" (eval says ok) but
+  `monitors all -j` keeps reporting the old state, and the reported value
+  can lag a commit behind. The panel's VRR row is honest about state but
+  can't explain WHY a toggle bounced — candidate future improvement.
 - **Single-monitor mode/scale/rotation changes resize the logical footprint
   in place — neighbours must move with the delta.** Scaling the eDP from 2x
   to 1.6x grows it 960→1200 logical wide straight into an external parked
