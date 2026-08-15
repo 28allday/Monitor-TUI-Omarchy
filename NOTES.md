@@ -1,5 +1,34 @@
 # Dev notes — Monitor Settings plugin
 
+## Status (parked 2026-08-15 — awaiting hardware test pass)
+
+Everything below shipped on 2026-08-15, dual-pushed, manifest at
+**0.3.1**, no release tag yet (waiting on the hardware pass):
+
+- `905e44c` — bash TUI replaced by native omarchy-shell plugin
+  (bar widget 󰍹 + panel + monitors.sh). Old TUI preserved at tag
+  `v0.1-tui`.
+- Absorbed the stock Display panel: brightness (backlight/DDC, async
+  probe), text size, per-display enable/disable. First open now ASKS
+  before retiring the stock icon (`deae2ab`, chooser dialog, recorded
+  once).
+- Two O4 landmines found and fixed along the way: persistence must
+  target **monitors.lua** (the .conf chain is never read), and live
+  applies must use **hyprctl eval hl.monitor** (`keyword` is rejected).
+  Details under Gotchas.
+- `36cc38d` — main-monitor switch (moves the pick to 0,0, shifts the
+  rest) and the drag-to-arrange mini-map editor with edge snapping.
+- `028667b` — 14 fixes from a full QML review (brightness write queue,
+  probe-clobber guard, stale arrange state on close, chooser hover
+  gate, row-identity selection across rebuilds, and smaller ones).
+
+Verified on one physical monitor plus a `hyprctl output create
+headless` second display, driven with wtype. **Not yet verified on
+real hardware:** everything in the test checklist at the bottom —
+especially mouse-dragging in the arrange editor, set-main on physical
+dual-head, brightness on a laptop backlight, and the first-open dialog
+on a fresh install.
+
 ## What this is
 
 v0.2.0 replaced the bash TUI (`monitor-tui.sh`, still in git history ≤ v0.1)
