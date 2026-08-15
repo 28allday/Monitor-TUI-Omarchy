@@ -1015,7 +1015,18 @@ Item {
                        + '", mode = "preferred", position = "auto", scale = "auto", disabled = false })'])
       } else if (root.enabledCount <= 1) {
         root.lastError = "Not disabling your only enabled monitor"
+      } else if (/^(eDP|LVDS|DSI)/.test(m.name) && root.pendingDisable !== m.name) {
+        // The built-in screen's kill switch must not fire on a single
+        // accidental press — a text-size change re-flows every row height,
+        // so the press AFTER one can land on whatever slid under the
+        // cursor, and this row sits right below Text size (cost an eDP
+        // 2026-08-15). Ask once; the request expires after 3s.
+        root.pendingDisable = m.name
+        pendingDisableTimer.restart()
+        root.lastError = "Press again to turn off the built-in screen"
       } else {
+        root.pendingDisable = ""
+        root.lastError = ""
         root.runApply(['hl.monitor({ output = "' + m.name + '", disabled = true })'])
       }
       return
@@ -1163,6 +1174,19 @@ Item {
     id: patchProc
     onExited: function(code, status) {
       if (code !== 0) root.lastError = "Couldn't persist to monitors.lua"
+    }
+  }
+
+  // Two-press confirm for disabling the built-in screen (see the enabled
+  // toggle in activate()).
+  property string pendingDisable: ""
+  Timer {
+    id: pendingDisableTimer
+    interval: 3000
+    onTriggered: {
+      root.pendingDisable = ""
+      if (root.lastError === "Press again to turn off the built-in screen")
+        root.lastError = ""
     }
   }
 
