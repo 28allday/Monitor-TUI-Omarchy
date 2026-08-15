@@ -11,10 +11,14 @@ It's a superset of the stock **Display** panel, so on first open it retires the 
 With more than one monitor, every display gets its own section — including on/off, position, and a main-monitor switch — and the arrangement editor lets you drag them into place:
 
 <p align="center">
+  <img src="docs/panel-dual.png" width="700">
+</p>
+
+<p align="center">
   <img src="docs/arrange.png" width="700">
 </p>
 
-> **v0.2.0 rewrote this project.** It used to be a bash TUI (`monitor-tui.sh`); it is now a QML panel with a bar icon, installed through Omarchy's plugin system. The old TUI lives in git history — if you had it installed, see [Migrating from the TUI](#migrating-from-the-tui).
+> **This project used to be a bash TUI** (`monitor-tui.sh`). It is now a QML panel with a bar icon, installed through Omarchy's plugin system. The old TUI lives in git history at tag `v0.1-tui` — if you had it installed, see [Migrating from the TUI](#migrating-from-the-tui).
 
 ## Install
 
@@ -45,7 +49,7 @@ o.bind("SUPER + ALT + M", "Monitor settings", "omarchy-shell shell toggle nosign
 | **Rotation** | Normal, 90°, 180°, 270° |
 | **VRR** | Toggle Variable Refresh Rate (FreeSync/G-Sync) per monitor |
 | **Display on/off** | Enable/disable individual monitors (the last enabled one is protected) |
-| **Live preview** | Every change applies instantly via `hyprctl eval "hl.monitor({…})"` — nothing touches disk until you save |
+| **Live preview** | Every change applies instantly — nothing touches disk until you save |
 | **Save / restore** | One row writes the live layout into a marked block in `monitors.lua` (backing up the file first); another restores the backup. Disabled monitors are saved disabled |
 | **Quick presets** | Apply the same scale to every monitor at its preferred resolution |
 
@@ -67,10 +71,10 @@ o.bind("SUPER + CTRL + D", "Display", "omarchy-shell shell toggle nosignal.monit
 
 ## How it works
 
-1. Reads live monitor data from `hyprctl monitors -j`
-2. Picking a value applies it immediately with `hyprctl eval 'hl.monitor({…})'` (`hyprctl keyword` is dead under Omarchy 4's Lua config) — the panel marks the session as having unsaved changes
-3. **Save current layout** serializes what's actually on screen into a marker-bracketed block of `hl.monitor()` lines in `~/.config/hypr/monitors.lua` — the file Omarchy 4 actually loads — keeping the previous file as `monitors.lua.bak`. Your own lines outside the block are untouched
-4. **Restore previous monitors.lua** puts the backup back and runs `hyprctl reload`
+1. Reads live monitor data straight from Hyprland
+2. Picking a value applies it immediately — the panel marks the session as having unsaved changes
+3. **Save current layout** writes what's actually on screen into a clearly-marked block in `~/.config/hypr/monitors.lua` (the file Omarchy 4 loads), keeping the previous file as `monitors.lua.bak`. Your own lines outside the block are untouched
+4. **Restore previous monitors.lua** puts the backup back and reloads
 
 Because nothing is written until you save, a change that goes wrong is undone by picking the old value again — or closing the panel and running `hyprctl reload`.
 
