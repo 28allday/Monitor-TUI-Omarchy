@@ -133,6 +133,25 @@ removing the headless one if you tested "set main".
   scale.
 - `save` reads back from hyprctl rather than from panel state, so what lands
   in monitors.lua is always what is actually on screen.
+- **Lid-save bug (hit 2026-08-15 on real hardware, FIXED same day):** because
+  `save` snapshots hyprctl state, saving while the laptop lid was closed
+  persisted `hl.monitor({ output = "eDP-1", disabled = true })`. Reopen the
+  lid with the external unplugged and eDP-1 stayed disabled — Hyprland ran on
+  a headless FALLBACK output, screen black, no local way in (recovered over
+  SSH by editing the marker block; a live `hyprctl eval` re-enable
+  is stomped by the persisted line).
+  **Fix (in monitors.sh save):** internal panels (name matching
+  `^(eDP|LVDS|DSI)`) are never persisted as `disabled = true` — the lid
+  switch owns their runtime state; instead their full spec is saved with
+  `position = "auto"` (a disabled monitor's reported offset is stale).
+  Deliberately disabled *external* outputs still persist as disabled.
+  Trade-off: an internal panel disabled by hand in the panel comes back on
+  the next config reload — safe beats sticky for the built-in screen.
+- **Save away from the dock no longer loses the dock's settings:** hyprctl
+  only reports connected monitors, so a save used to rewrite the block with
+  just what's plugged in (a road save dropped the HDMI line). `save` now
+  carries over previous-block lines for outputs not currently connected.
+  Verified idempotent (double save) on hardware 2026-08-15.
 
 ## Test checklist (hardware pass)
 

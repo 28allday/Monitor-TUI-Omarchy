@@ -65,8 +65,19 @@ save)
     # One hl.monitor() line per monitor, from what is actually on screen.
     # transform/vrr are always written so the saved state is complete; a
     # disabled monitor is saved as disabled rather than coming back on boot.
-    lines=$(hyprctl monitors all -j | jq -r '.[] |
-        if .disabled then
+    #
+    # EXCEPT internal panels (eDP/LVDS/DSI): those go disabled whenever the
+    # lid is closed, so a save taken while docked lid-closed would persist
+    # "disabled = true" — and after unplugging the external the laptop wakes
+    # to a black screen with no local way back in. The lid switch owns the
+    # internal panel's on/off state at runtime; the config must never pin it
+    # off. Persist its spec instead, with position "auto" since a disabled
+    # monitor's reported offset is stale.
+    mons=$(hyprctl monitors all -j)
+    lines=$(printf '%s' "$mons" | jq -r '.[] |
+        if .disabled and (.name | test("^(eDP|LVDS|DSI)")) then
+          "hl.monitor({ output = \"\(.name)\", mode = \"\(.width)x\(.height)@\(.refreshRate | round)\", position = \"auto\", scale = \((.scale * 1000000 | round) / 1000000), transform = \(.transform), vrr = \(if .vrr then 1 else 0 end) })"
+        elif .disabled then
           "hl.monitor({ output = \"\(.name)\", disabled = true })"
         else
           "hl.monitor({ output = \"\(.name)\", mode = \"\(.width)x\(.height)@\(.refreshRate | round)\", position = \"\(.x)x\(.y)\", scale = \((.scale * 1000000 | round) / 1000000), transform = \(.transform), vrr = \(if .vrr then 1 else 0 end) })"
@@ -74,6 +85,22 @@ save)
     # A save that produced no monitor lines would persist nothing useful —
     # refuse rather than write an empty block.
     [ -n "$lines" ] || exit 1
+
+    # Carry over previous-block lines for outputs that are not connected
+    # right now (the docked HDMI while saving on the road, say) so a save
+    # made elsewhere doesn't throw away their settings — hyprctl only
+    # reports what is plugged in.
+    if [ -f "$CONFIG" ]; then
+        names=$(printf '%s' "$mons" | jq -r '.[].name')
+        carried=$(sed -n "/^-- >>> nosignal\.monitor-settings begin/,/^-- <<< nosignal\.monitor-settings end/p" "$CONFIG" \
+            | grep '^hl\.monitor' | while IFS= read -r old; do
+                out=$(printf '%s' "$old" | sed -n 's/.*output = "\([^"]*\)".*/\1/p')
+                [ -n "$out" ] || continue
+                printf '%s\n' "$names" | grep -qxF "$out" || printf '%s\n' "$old"
+            done)
+        [ -n "$carried" ] && lines="$lines
+$carried"
+    fi
 
     [ -f "$CONFIG" ] && cp "$CONFIG" "$BACKUP"
     tmp="$CONFIG.new.$$"
