@@ -1033,15 +1033,45 @@ Item {
     if (!m) return
     var mode = o.mode !== undefined ? o.mode : root.currentMode(m)
     var pos = o.pos !== undefined ? o.pos : (m.x + "x" + m.y)
-    var scale = o.scale !== undefined ? Number(o.scale) : Number(m.scale)
+    var scaleN = o.scale !== undefined ? Number(o.scale) : Number(m.scale)
     var t = o.transform !== undefined ? o.transform : Number(m.transform)
     var vrr = o.vrr !== undefined ? o.vrr : (m.vrr === true)
     // Clean against the mode being applied, not the current one — a mode
     // change can make the old scale invalid.
     var mw = parseInt(mode, 10) || m.width
     var mh = parseInt(String(mode).split("x")[1], 10) || m.height
-    scale = root.fmtScale(root.cleanScale(scale, mw, mh))
-    root.runApply([root.luaMonitorExpr(name, mode, pos, scale, t, vrr)])
+    scaleN = root.cleanScale(scaleN, mw, mh)
+    var scale = root.fmtScale(scaleN)
+    var specs = [root.luaMonitorExpr(name, mode, pos, scale, t, vrr)]
+
+    // A mode/scale/rotation change resizes the monitor's logical footprint
+    // in place, so neighbours laid out past its old right/bottom edge must
+    // shift by the delta — otherwise growth overlaps them (Hyprland takes
+    // the layout but fires its "set up incorrectly" banner) and shrink
+    // leaves a dead gap. Applied as one batched eval so no intermediate
+    // state overlaps either.
+    if (o.pos === undefined) {
+      var newW = Math.round(((Number(t) % 2 === 1) ? mh : mw) / scaleN)
+      var newH = Math.round(((Number(t) % 2 === 1) ? mw : mh) / scaleN)
+      var dw = newW - root.logicalW(m)
+      var dh = newH - root.logicalH(m)
+      if (dw !== 0 || dh !== 0) {
+        var oldR = Number(m.x) + root.logicalW(m)
+        var oldB = Number(m.y) + root.logicalH(m)
+        for (var i = 0; i < root.monitors.length; i++) {
+          var n = root.monitors[i]
+          if (n.name === m.name || n.disabled === true) continue
+          var nx = Number(n.x), ny = Number(n.y)
+          var sx = nx >= oldR ? dw : 0
+          var sy = ny >= oldB ? dh : 0
+          if (sx === 0 && sy === 0) continue
+          specs.push(root.luaMonitorExpr(n.name, root.currentMode(n),
+                     (nx + sx) + "x" + (ny + sy),
+                     root.fmtScale(n.scale), Number(n.transform), n.vrr === true))
+        }
+      }
+    }
+    root.runApply([specs.join("; ")])
   }
 
   function applyPresetAll(scale) {

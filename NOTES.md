@@ -147,6 +147,15 @@ removing the headless one if you tested "set main".
   Deliberately disabled *external* outputs still persist as disabled.
   Trade-off: an internal panel disabled by hand in the panel comes back on
   the next config reload — safe beats sticky for the built-in screen.
+- **Single-monitor mode/scale/rotation changes resize the logical footprint
+  in place — neighbours must move with the delta.** Scaling the eDP from 2x
+  to 1.6x grows it 960→1200 logical wide straight into an external parked
+  at x=960 → overlap → Hyprland's banner (missed by the first hardware pass,
+  which only tested a shrinking change). applyMonitor now shifts every
+  enabled monitor past the old right/bottom edge by the width/height delta,
+  batched into the same eval — growth stays adjacent, shrink closes the gap.
+  Verified both directions on hardware (2x↔1.875x with the external at the
+  eDP's right edge).
 - **Hyprland accepts overlapping layouts but fires its "monitor layout is
   set up incorrectly" banner** (screen notification only — nothing in the
   log, nothing on hyprctl's stdout, so runApply can't catch it). Found
