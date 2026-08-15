@@ -7,11 +7,14 @@ with a native omarchy-shell plugin: `manifest.json` + `BarWidget.qml` +
 `Panel.qml` + `monitors.sh`. Same job, same config file, no terminal.
 
 It then absorbed the first-party Display panel (`omarchy.monitor`):
-brightness, text size, and per-display enable/disable now live here too, and
-the first open retires the first-party bar icon (once, marker in
-`~/.local/state/nosignal-monitor-settings/takeover-done`; re-enabling the
-stock plugin sticks). The stock SUPER+CTRL+D bind targets the dead
-first-party id afterwards — README documents the bindings.lua re-point.
+brightness, text size, and per-display enable/disable now live here too.
+The first open ASKS whether to retire the stock bar icon (chooser dialog:
+replace / keep both — there is no plugin install hook, so first-open is
+the earliest we can ask). The answer lands once in
+`~/.local/state/nosignal-monitor-settings/takeover-done`; Esc postpones;
+re-enabling the stock plugin later sticks. The stock SUPER+CTRL+D bind
+targets the dead first-party id after a replace — README documents the
+bindings.lua re-point.
 
 ## Architecture
 

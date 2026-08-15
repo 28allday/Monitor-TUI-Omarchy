@@ -11,8 +11,10 @@
 #                           which is why it is not part of `state`
 #   monitors.sh save        serialize the LIVE monitor layout to monitors.lua
 #   monitors.sh restore     put the backup back and hyprctl reload
+#   monitors.sh takeover …  first-open ask/record for retiring the stock
+#                           Display icon (status|replace|keep)
 #
-# Live changes are applied by the panel itself (hyprctl keyword monitor …);
+# Live changes are applied by the panel itself (hyprctl eval hl.monitor…);
 # `save` deliberately reads the live state back from hyprctl rather than
 # trusting the panel's idea of it, so what lands in the config is always what
 # is actually on screen.
@@ -99,8 +101,43 @@ restore)
     hyprctl reload >/dev/null 2>&1
     ;;
 
+# This panel supersedes the stock Display panel (omarchy.monitor), but that
+# is the USER'S call: on first open the panel asks. `status` prints "ask"
+# exactly when the stock icon is still around and no decision is recorded;
+# `replace`/`keep` record the answer (replace also retires the stock icon —
+# reversible with: omarchy plugin enable omarchy.monitor).
+takeover)
+    marker="${XDG_STATE_HOME:-$HOME/.local/state}/nosignal-monitor-settings/takeover-done"
+    shelljson="$HOME/.config/omarchy/shell.json"
+    case "${2:-}" in
+    status)
+        [ -f "$marker" ] && { echo "done"; exit 0; }
+        if [ -f "$shelljson" ] && grep -q '"omarchy.monitor"' "$shelljson"; then
+            echo "ask"
+        else
+            # Nothing to take over — record that so we never ask later if
+            # the user re-enables the stock icon on purpose.
+            mkdir -p "${marker%/*}" && touch "$marker"
+            echo "done"
+        fi
+        ;;
+    replace)
+        mkdir -p "${marker%/*}" || exit 1
+        omarchy plugin disable omarchy.monitor >/dev/null 2>&1
+        touch "$marker"
+        ;;
+    keep)
+        mkdir -p "${marker%/*}" && touch "$marker"
+        ;;
+    *)
+        echo "usage: monitors.sh takeover status|replace|keep" >&2
+        exit 2
+        ;;
+    esac
+    ;;
+
 *)
-    echo "usage: monitors.sh state|save|restore" >&2
+    echo "usage: monitors.sh state|brightness|save|restore|takeover" >&2
     exit 2
     ;;
 esac

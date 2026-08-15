@@ -153,26 +153,39 @@ Item {
 
   // This panel is a superset of the first-party Display panel
   // (omarchy.monitor): brightness, text size, scale, and display on/off all
-  // live here too. Running both means two icons doing overlapping jobs, so
-  // the first open retires the first-party bar icon — ONCE, recorded by a
-  // marker file. Re-enabling it later (`omarchy plugin enable
-  // omarchy.monitor`) sticks: the marker stops us from taking it away again.
-  readonly property string takeoverScript: [
-    'marker="${XDG_STATE_HOME:-$HOME/.local/state}/nosignal-monitor-settings/takeover-done"',
-    '[ -f "$marker" ] && exit 0',
-    'mkdir -p "${marker%/*}"',
-    'f="$HOME/.config/omarchy/shell.json"',
-    'if [ -f "$f" ] && grep -q \'"omarchy.monitor"\' "$f"; then',
-    '  omarchy plugin disable omarchy.monitor >/dev/null 2>&1',
-    'fi',
-    'touch "$marker"'
-  ].join("\n")
-
-  property bool takeoverEnsured: false
+  // live here too. Running both means two icons doing overlapping jobs — but
+  // retiring the stock icon is the USER'S call, so the first open ASKS
+  // (replace / keep both) instead of doing it silently. The answer is
+  // recorded once; Esc postpones, and re-enabling the stock plugin later
+  // (`omarchy plugin enable omarchy.monitor`) sticks.
   function ensureTakeover() {
-    if (root.takeoverEnsured) return
-    root.takeoverEnsured = true
-    Quickshell.execDetached(["sh", "-c", root.takeoverScript, "display-takeover"])
+    if (!takeoverCheckProc.running) takeoverCheckProc.running = true
+  }
+
+  Process {
+    id: takeoverCheckProc
+    command: ["sh", root.scriptPath, "takeover", "status"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        if (String(text || "").trim() !== "ask") return
+        // Don't shove a dialog over a chooser or an arrange session the
+        // user already opened; the question keeps until the next open.
+        if (!root.opened || root.chooser !== null || root.arranging) return
+        root.openChooser("One display panel, not two",
+                         "This panel does everything the stock Display panel does. Keep one icon, or both?",
+                         "takeover", "", [
+          { label: "Replace the stock Display icon   (recommended)", value: "replace", current: true },
+          { label: "Keep both icons", value: "keep", current: false }
+        ])
+      }
+    }
+  }
+
+  function resolveTakeover(choice) {
+    Quickshell.execDetached(["sh", root.scriptPath, "takeover", String(choice)])
+    if (choice === "replace")
+      savedNote.show("stock Display icon retired")
   }
 
   // ------------------------------------------------------------- open/close
@@ -564,6 +577,7 @@ Item {
     else if (kind === "preset") root.applyPresetAll(opt.value)
     else if (kind === "brightness") root.setBrightness(opt.value)
     else if (kind === "textsize") root.setTextSize(opt.value)
+    else if (kind === "takeover") root.resolveTakeover(opt.value)
   }
 
   // ----------------------------------------------------------- option lists

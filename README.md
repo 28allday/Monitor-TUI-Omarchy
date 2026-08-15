@@ -2,7 +2,7 @@
 
 A native [omarchy-shell](https://omarchy.com) plugin for managing monitor settings on Omarchy 4 (Hyprland). One panel for everything display: brightness, text size, and per-monitor resolution, refresh rate, scaling, position, rotation, VRR and on/off — no terminal, no config editing.
 
-It's a superset of the stock **Display** panel, so on first open it retires the first-party `omarchy.monitor` bar icon (once — see [One display panel, not two](#one-display-panel-not-two)).
+It's a superset of the stock **Display** panel, so on first open it asks whether to retire the first-party `omarchy.monitor` bar icon — your call, asked once (see [One display panel, not two](#one-display-panel-not-two)).
 
 <p align="center">
   <img src="docs/panel.png" width="700">
@@ -55,13 +55,15 @@ o.bind("SUPER + ALT + M", "Monitor settings", "omarchy-shell shell toggle nosign
 
 ## One display panel, not two
 
-This panel does everything the first-party **Display** panel (`omarchy.monitor`) does, so running both means two bar icons with overlapping jobs. On its first open, the plugin disables the first-party icon — exactly once, recorded in `~/.local/state/nosignal-monitor-settings/`. If you want the stock panel back:
+This panel does everything the first-party **Display** panel (`omarchy.monitor`) does, so running both means two bar icons with overlapping jobs. On its first open, the panel **asks** — replace the stock icon, or keep both. Your answer is recorded once (in `~/.local/state/nosignal-monitor-settings/`) and never asked again; Esc postpones the question to the next open.
+
+If you replaced it and want the stock panel back:
 
 ```bash
 omarchy plugin enable omarchy.monitor
 ```
 
-and it stays back — the marker stops the plugin from taking it away again.
+and it stays back — the recorded answer stops the plugin from asking again.
 
 The stock `SUPER + CTRL + D` binding targets the first-party panel, so re-point it in `~/.config/hypr/bindings.lua`:
 
