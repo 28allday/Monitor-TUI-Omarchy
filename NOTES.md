@@ -166,6 +166,22 @@ removing the headless one if you tested "set main".
   Deliberately disabled *external* outputs still persist as disabled.
   Trade-off: an internal panel disabled by hand in the panel comes back on
   the next config reload — safe beats sticky for the built-in screen.
+- **`hyprctl eval hl.monitor(…)` is NOT a reliable apply on O4 — the Lua
+  config engine owns monitor state.** Seen live 2026-08-15: a scale change
+  evaluated fine, held for ~800ms, then snapped back to the config-block
+  values; re-evaluating didn't help, and nothing appears in any log (the
+  revert is silent). Yet identical evals had stuck for minutes earlier in
+  the same session — the stomping seems to arm at some point (likely after
+  a config reload) and then reverts every subsequent eval. The config FILE
+  is authoritative and live-reloads on write within ~2–6s. So the panel now
+  applies through BOTH channels (`runApply`): `monitors.sh patch` writes
+  the spec lines into the marker block (replace-or-append per output,
+  backup first) for the state that actually holds, plus the batched eval
+  for instant feedback when the engine allows it. Consequence: applies now
+  persist immediately — "Save current layout" is reconciliation (it also
+  captures drags done outside the panel), and "Restore previous" is the
+  undo. Lid safety holds in both paths: an internal panel's
+  `disabled = true` is evaluated live but never written to the block.
 - **VRR has three gates and the panel only controls one.** The per-monitor
   `vrr` flag does nothing unless (a) the display link actually offers
   adaptive sync — check `edid-decode /sys/class/drm/<conn>/edid` for an

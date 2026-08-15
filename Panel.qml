@@ -842,7 +842,7 @@ Item {
     }
     // Batched into one eval — see applyArrange for why (transient overlap
     // mid-sequence trips Hyprland's layout banner).
-    root.runApply([specs.join("; ")])
+    root.runApply(specs)
   }
 
   function openArrange() {
@@ -935,7 +935,7 @@ Item {
     // One eval for the whole layout: sequential applies pass through
     // transient overlaps (monitor A moved, B not yet) and Hyprland fires
     // its overlap banner for those too. Batched, it never sees one.
-    root.runApply([specs.join("; ")])
+    root.runApply(specs)
   }
 
   // ---------------------------------------------------------------- actions
@@ -1071,7 +1071,7 @@ Item {
         }
       }
     }
-    root.runApply([specs.join("; ")])
+    root.runApply(specs)
   }
 
   function applyPresetAll(scale) {
@@ -1084,7 +1084,7 @@ Item {
                                      Number(m.transform), m.vrr === true))
     }
     // Batched into one eval — see applyArrange for why.
-    root.runApply([specs.join("; ")])
+    root.runApply(specs)
   }
 
   // Specs run one at a time through applyProc so hyprctl's answer is read for
@@ -1094,10 +1094,39 @@ Item {
   // Appends rather than replaces: a multi-spec batch (preset, set-main,
   // arrange) mid-flight must not have its tail dropped by the next apply —
   // half of a set-main is an overlap nobody asked for.
+  //
+  // Two channels per apply, both from the same spec lines:
+  // 1. PERSIST: `monitors.sh patch` writes them into the monitors.lua
+  //    marker block. On O4 the Lua config engine owns monitor state — a
+  //    runtime `hyprctl eval hl.monitor(…)` can be re-asserted over within
+  //    ~800ms (seen live: scale change applied, then snapped back), while
+  //    the config file is authoritative and live-reloads on write.
+  // 2. EVAL: the batched hyprctl eval still runs for instant feedback in
+  //    the (common) case where the engine lets it stand; the config reload
+  //    lands the same state a few seconds later regardless.
+  // Lid safety: `disabled = true` for an internal panel (eDP/LVDS/DSI) is
+  // evaluated live but never persisted — a config that pins the built-in
+  // screen off is a black-screen trap on the next lid-open (same rule as
+  // `save`).
   function runApply(specs) {
     root.lastError = ""
-    root.applyQueue = root.applyQueue.concat(specs)
+    var persist = specs.filter(function(s) {
+      return !(s.indexOf("disabled = true") !== -1
+               && /output = "(eDP|LVDS|DSI)/.test(s))
+    })
+    if (persist.length > 0) {
+      patchProc.command = ["sh", root.scriptPath, "patch"].concat(persist)
+      patchProc.running = true
+    }
+    root.applyQueue = root.applyQueue.concat([specs.join("; ")])
     root.applyNext()
+  }
+
+  Process {
+    id: patchProc
+    onExited: function(code, status) {
+      if (code !== 0) root.lastError = "Couldn't persist to monitors.lua"
+    }
   }
 
   // Set only by a confirmed "ok" from hyprctl, so a refused change doesn't

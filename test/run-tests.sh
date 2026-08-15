@@ -115,6 +115,27 @@ check "restore exits 0"                          [ $? -eq 0 ]
 check "restore puts backup back"                 cmp -s "$TESTDIR/saved-state" "$CONFIG"
 check "restore triggers hyprctl reload"          grep -q '^reload$' "$MOCK_LOG"
 
+# ---- patch ------------------------------------------------------------------
+seed_config
+export MOCK_MONITORS_JSON="$TESTDIR/both.json"
+sh "$SH" save
+sh "$SH" patch 'hl.monitor({ output = "eDP-1", mode = "1920x1200@120", position = "0x0", scale = 1.25, transform = 0, vrr = 0 })'
+check "patch exits 0"                            [ $? -eq 0 ]
+check "patch replaces the output line"           sh -c 'echo "$0" | grep -q "scale = 1.25"' "$(block)"
+check "patch keeps one line per output"          sh -c '[ "$(echo "$0" | grep -c "eDP-1")" = 1 ]' "$(block)"
+check "patch preserves other outputs"            sh -c 'echo "$0" | grep -q "HDMI-A-1"' "$(block)"
+check "patch preserves user lines"               grep -q 'user comment that must survive' "$CONFIG"
+sh "$SH" patch 'hl.monitor({ output = "DP-9", mode = "1920x1080@60", position = "auto", scale = 1, transform = 0, vrr = 0 })'
+check "patch appends a new output"               sh -c 'echo "$0" | grep -q "DP-9"' "$(block)"
+sh "$SH" patch \
+    'hl.monitor({ output = "eDP-1", mode = "1920x1200@120", position = "0x0", scale = 2, transform = 0, vrr = 0 })' \
+    'hl.monitor({ output = "DP-9", disabled = true })'
+check "multi-arg patch rewrites both"            sh -c 'echo "$0" | grep -q "scale = 2" && echo "$0" | grep -q "DP-9\", disabled = true"' "$(block)"
+rm -f "$CONFIG"
+sh "$SH" patch 'hl.monitor({ output = "eDP-1", mode = "1920x1200@120", position = "0x0", scale = 2, transform = 0, vrr = 0 })'
+check "patch creates block on fresh config"      sh -c 'grep -q "nosignal.monitor-settings begin" "$0" && grep -q "eDP-1" "$0"' "$CONFIG"
+if sh "$SH" patch; then bad "argless patch should exit nonzero"; else ok "argless patch refused"; fi
+
 # ---- state ------------------------------------------------------------------
 export MOCK_MONITORS_JSON="$TESTDIR/both.json"
 out=$(sh "$SH" state)
