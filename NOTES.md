@@ -147,6 +147,12 @@ removing the headless one if you tested "set main".
   Deliberately disabled *external* outputs still persist as disabled.
   Trade-off: an internal panel disabled by hand in the panel comes back on
   the next config reload — safe beats sticky for the built-in screen.
+- **Re-enabling a monitor needs an EXPLICIT `disabled = false`.** A spec
+  that merely omits `disabled` does not clear a runtime disable — hyprctl
+  eval answers "ok" and nothing changes (cost the Enabled toggle its
+  re-enable half until 2026-08-15; found live when a replugged external
+  came back listed-but-disabled). The config-reload path is different:
+  there a plain spec does re-enable.
 - **Save away from the dock no longer loses the dock's settings:** hyprctl
   only reports connected monitors, so a save used to rewrite the block with
   just what's plugged in (a road save dropped the HDMI line). `save` now
@@ -155,20 +161,31 @@ removing the headless one if you tested "set main".
 
 ## Test checklist (hardware pass)
 
-- [ ] Resolution change applies live and shows in the row after refresh
-- [ ] Scale presets apply; odd scale set outside presets still shows as current
-- [ ] VRR toggles (monitor must support it)
-- [ ] Rotation 90° → logical size swaps in the Scale row
-- [ ] Save writes the marker block into monitors.lua (+ .bak); restore puts the old file back
-- [ ] Multi-monitor: Position row appears, left/right/above/below coordinates sane
-- [ ] Multi-monitor: "Set main" moves the picked monitor to 0,0 and shifts the
-      rest (verified with a headless output; needs a real dual-head pass)
-- [ ] Multi-monitor: arrange editor — real mouse DRAG + edge snap (only
-      keyboard nudge was verifiable headless), apply → positions stick
-- [ ] Multi-monitor: Enabled toggle disables/re-enables a display; last
-      enabled one refuses with a status-line message; save writes `disable`
+2026-08-15 remote pass on real dual-head hardware (laptop eDP 1920x1200@120
+scale 2 + 4K external over HDMI): everything scriptable below verified by
+driving `hyprctl eval` + monitors.sh over SSH. UI-interaction rows still
+need a hands-on pass.
+
+- [x] Resolution change applies live (4K↔1440p verified) — row refresh not yet eyeballed
+- [x] Scale applies live (1.5 ↔ 1.666667 verified)
+- [ ] VRR toggles (monitor must support it) — request on this 4K HDMI display
+      came back `vrr: false`: link doesn't offer it, so still unverified
+- [x] Rotation 90° applies live — logical-size swap in the row not yet eyeballed
+- [x] Save writes the marker block into monitors.lua (+ .bak); restore puts
+      the old file back; double save is byte-identical (idempotent)
+- [x] Multi-monitor: coordinates sane on real dual-head (external 0,0 +
+      eDP 2560,98 round-trips through save/restore exactly)
+- [ ] Multi-monitor: "Set main" via the UI on real dual-head
+- [ ] Multi-monitor: arrange editor — real mouse DRAG + edge snap
+- [x] Multi-monitor: Enabled toggle disables/re-enables both external and
+      internal (re-enable needs the explicit `disabled = false` fix); UI
+      toggle verified on hardware for the external
+- [x] Lid-safe save: with eDP runtime-disabled, save writes its full spec
+      with `position = "auto"`, never `disabled = true`
 - [ ] Keybinding works with the bar icon removed (self-reference)
-- [ ] Laptop with backlight: Brightness row appears, ←/→ adjusts, chooser picks work
+- [x] Brightness: external DDC/CI (4K BenQ) answers in ~0.3 s with a
+      correct percent; laptop-backlight row (amdgpu_bl2) ←/→ still needs a
+      hands-on check
 - [ ] Text size ←/→ steps the shell font and the row tracks Style.font.baseSize
 - [ ] Fresh install: first open removes the stock Display icon; `omarchy
       plugin enable omarchy.monitor` brings it back and it stays

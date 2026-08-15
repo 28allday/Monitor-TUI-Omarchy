@@ -932,8 +932,11 @@ Item {
 
     if (row.key === "enabled") {
       if (m.disabled === true) {
+        // "disabled = false" must be EXPLICIT: a spec that merely omits it
+        // does not re-enable a runtime-disabled monitor (hyprctl says "ok"
+        // and nothing happens — verified on hardware 2026-08-15).
         root.runApply(['hl.monitor({ output = "' + m.name
-                       + '", mode = "preferred", position = "auto", scale = "auto" })'])
+                       + '", mode = "preferred", position = "auto", scale = "auto", disabled = false })'])
       } else if (root.enabledCount <= 1) {
         root.lastError = "Not disabling your only enabled monitor"
       } else {
