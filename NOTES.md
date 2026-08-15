@@ -52,6 +52,14 @@ shellcheck monitors.sh
 omarchy plugin validate .
 ```
 
+**Testing multi-monitor UI on a single-monitor box:** Hyprland can fake a
+display — `hyprctl output create headless TESTMON` (remove with
+`hyprctl output remove TESTMON`). It shows up in `monitors all -j` like a
+real 1920x1080 output, so Enabled/Position/Main rows and the arrange
+editor all light up. `wtype -k <key>` drives the panel's exclusive-focus
+keyboard for hands-off testing. Put the real monitor back at 0,0 before
+removing the headless one if you tested "set main".
+
 ## Gotchas
 
 - **Persistence MUST target `~/.config/hypr/monitors.lua`, never
@@ -102,6 +110,10 @@ omarchy plugin validate .
 - [ ] Rotation 90° → logical size swaps in the Scale row
 - [ ] Save writes the marker block into monitors.lua (+ .bak); restore puts the old file back
 - [ ] Multi-monitor: Position row appears, left/right/above/below coordinates sane
+- [ ] Multi-monitor: "Set main" moves the picked monitor to 0,0 and shifts the
+      rest (verified with a headless output; needs a real dual-head pass)
+- [ ] Multi-monitor: arrange editor — real mouse DRAG + edge snap (only
+      keyboard nudge was verifiable headless), apply → positions stick
 - [ ] Multi-monitor: Enabled toggle disables/re-enables a display; last
       enabled one refuses with a status-line message; save writes `disable`
 - [ ] Keybinding works with the bar icon removed (self-reference)

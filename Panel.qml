@@ -358,9 +358,12 @@ Item {
                   label: "Resolution", value: root.currentMode(m) + "Hz" })
       rows.push({ kind: "setting", key: "scale", mon: m.name,
                   label: "Scale", value: root.fmtScale(m.scale) + "x   (" + root.logicalW(m) + "x" + root.logicalH(m) + " logical)" })
-      if (root.enabledCount > 1)
+      if (root.enabledCount > 1) {
         rows.push({ kind: "setting", key: "position", mon: m.name,
                     label: "Position", value: m.x + "," + m.y })
+        rows.push({ kind: "setting", key: "main", mon: m.name,
+                    label: "Main monitor", value: root.isMain(m) ? "Yes" : "No" })
+      }
       rows.push({ kind: "setting", key: "rotation", mon: m.name,
                   label: "Rotation", value: root.transformLabel(m.transform) })
       rows.push({ kind: "setting", key: "vrr", mon: m.name,
@@ -368,6 +371,9 @@ Item {
     }
 
     rows.push({ kind: "group", label: "Config", note: "~/.config/hypr/monitors.lua" })
+    if (root.enabledCount > 1)
+      rows.push({ kind: "action", act: "arrange",
+                  label: "Arrange monitors — drag them into place", value: "" })
     if (root.monitors.length > 0)
       rows.push({ kind: "action", act: "preset",
                   label: "Quick preset — same scale on every monitor", value: "" })
@@ -704,6 +710,119 @@ Item {
     Quickshell.execDetached(["omarchy-display-text-size", String(px)])
   }
 
+  // ------------------------------------------------------------ arrangement
+
+  // The mini-map arrangement editor. Works on a copy of the enabled
+  // monitors' LOGICAL rects (scaled, rotation-swapped) — the same numbers
+  // Hyprland lays surfaces out with — and applies nothing until ↵.
+  property bool arranging: false
+  property var arrangeRects: []    // [{ name, x, y, w, h }] logical px
+  property int arrangeSel: 0
+
+  // "Main" = the monitor at origin. That is the honest Hyprland meaning:
+  // there is no primary-output flag, but 0,0 is where the first workspace
+  // lands and where fullscreen games default to.
+  function isMain(m) {
+    return Number(m.x) === 0 && Number(m.y) === 0
+  }
+
+  // Move this monitor to 0,0 and shift every other enabled monitor by the
+  // same amount, so the relative layout is preserved exactly.
+  function setMain(name) {
+    var m = root.findMon(name)
+    if (!m || m.disabled === true) return
+    var dx = -Number(m.x), dy = -Number(m.y)
+    var specs = []
+    for (var i = 0; i < root.monitors.length; i++) {
+      var o = root.monitors[i]
+      if (o.disabled === true) continue
+      specs.push(root.luaMonitorExpr(o.name, root.currentMode(o),
+                                     (Number(o.x) + dx) + "x" + (Number(o.y) + dy),
+                                     root.fmtScale(o.scale), Number(o.transform), o.vrr === true))
+    }
+    root.runApply(specs)
+  }
+
+  function openArrange() {
+    var rects = []
+    for (var i = 0; i < root.monitors.length; i++) {
+      var m = root.monitors[i]
+      if (m.disabled === true) continue
+      rects.push({ name: m.name, x: Number(m.x), y: Number(m.y),
+                   w: root.logicalW(m), h: root.logicalH(m) })
+    }
+    if (rects.length < 2) return
+    root.arrangeRects = rects
+    root.arrangeSel = 0
+    root.arranging = true
+  }
+
+  function cancelArrange() {
+    root.arranging = false
+    root.arrangeRects = []
+  }
+
+  // Snap one edge pair per axis: align-left/right/top/bottom with, or butt
+  // up against, any other rect — whichever is closest within the threshold.
+  readonly property int snapDist: 60
+  function snapRect(r, idx) {
+    var bestDX = null, bestDY = null
+    for (var i = 0; i < root.arrangeRects.length; i++) {
+      if (i === idx) continue
+      var o = root.arrangeRects[i]
+      var xs = [o.x - r.x, (o.x + o.w) - r.x, o.x - (r.x + r.w), (o.x + o.w) - (r.x + r.w)]
+      var ys = [o.y - r.y, (o.y + o.h) - r.y, o.y - (r.y + r.h), (o.y + o.h) - (r.y + r.h)]
+      for (var k = 0; k < 4; k++) {
+        if (Math.abs(xs[k]) <= root.snapDist && (bestDX === null || Math.abs(xs[k]) < Math.abs(bestDX))) bestDX = xs[k]
+        if (Math.abs(ys[k]) <= root.snapDist && (bestDY === null || Math.abs(ys[k]) < Math.abs(bestDY))) bestDY = ys[k]
+      }
+    }
+    if (bestDX !== null) r.x += bestDX
+    if (bestDY !== null) r.y += bestDY
+    return r
+  }
+
+  function commitArrangeRect(idx, lx, ly) {
+    var rects = root.arrangeRects.slice()
+    var r = { name: rects[idx].name, x: Math.round(lx), y: Math.round(ly),
+              w: rects[idx].w, h: rects[idx].h }
+    rects[idx] = root.snapRect(r, idx)
+    root.arrangeRects = rects
+    root.arrangeSel = idx
+  }
+
+  function nudgeArrange(dx, dy) {
+    if (root.arrangeSel < 0 || root.arrangeSel >= root.arrangeRects.length) return
+    var rects = root.arrangeRects.slice()
+    var r = rects[root.arrangeSel]
+    rects[root.arrangeSel] = { name: r.name, x: r.x + dx * 40, y: r.y + dy * 40, w: r.w, h: r.h }
+    root.arrangeRects = rects
+  }
+
+  // Normalize so the top-left of the layout sits at 0,0 (negative
+  // coordinates work in Hyprland but 0-based keeps monitors.lua readable),
+  // then apply live — one hl.monitor eval per monitor.
+  function applyArrange() {
+    if (root.arrangeRects.length < 2) { root.cancelArrange(); return }
+    var minX = Infinity, minY = Infinity
+    var i
+    for (i = 0; i < root.arrangeRects.length; i++) {
+      if (root.arrangeRects[i].x < minX) minX = root.arrangeRects[i].x
+      if (root.arrangeRects[i].y < minY) minY = root.arrangeRects[i].y
+    }
+    var specs = []
+    for (i = 0; i < root.arrangeRects.length; i++) {
+      var r = root.arrangeRects[i]
+      var m = root.findMon(r.name)
+      if (!m) continue
+      specs.push(root.luaMonitorExpr(m.name, root.currentMode(m),
+                                     (r.x - minX) + "x" + (r.y - minY),
+                                     root.fmtScale(m.scale), Number(m.transform), m.vrr === true))
+    }
+    root.cancelArrange()
+    root.runApply(specs)
+  }
+
   // ---------------------------------------------------------------- actions
 
   function activate(i) {
@@ -713,6 +832,7 @@ Item {
     if (row.kind === "action") {
       if (row.act === "save") { saveProc.running = true; return }
       if (row.act === "restore") { restoreProc.running = true; return }
+      if (row.act === "arrange") { root.openArrange(); return }
       if (row.act === "preset") {
         root.openChooser("Quick preset", "Applies preferred resolution + this scale to every monitor",
                          "preset", "", root.presetChoices)
@@ -743,6 +863,11 @@ Item {
       } else {
         root.runApply(['hl.monitor({ output = "' + m.name + '", disabled = true })'])
       }
+      return
+    }
+
+    if (row.key === "main") {
+      if (!root.isMain(m)) root.setMain(row.mon)
       return
     }
 
@@ -964,12 +1089,14 @@ Item {
         if (rowItem.isAction) {
           if (rowItem.rowData.act === "save") return "󰆓"
           if (rowItem.rowData.act === "restore") return "󰦛"
+          if (rowItem.rowData.act === "arrange") return "󰍺"
           return "󰓡"
         }
         switch (rowItem.rowData.key) {
           case "brightness": return "󰃠"
           case "textsize": return "󰛖"
           case "enabled": return "󰐥"
+          case "main": return "󰓎"
           case "mode": return "󰍹"
           case "scale": return "󰍉"
           case "position": return "󰉺"
@@ -1005,6 +1132,7 @@ Item {
         if (rowItem.isAction) return "run"
         if (rowItem.rowData.kind === "slider") return "◂ ▸ adjust"
         if (rowItem.rowData.key === "vrr" || rowItem.rowData.key === "enabled") return "toggle"
+        if (rowItem.rowData.key === "main") return rowItem.rowData.value === "Yes" ? "" : "set main"
         return "change…"
       }
       color: root.foreground
@@ -1121,6 +1249,21 @@ Item {
         anchors.fill: parent
         focus: true
         Keys.onPressed: function(event) {
+          // The arrange editor owns the keyboard while it's up.
+          if (root.arranging) {
+            if (event.key === Qt.Key_Escape) root.cancelArrange()
+            else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) root.applyArrange()
+            else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab)
+              root.arrangeSel = (root.arrangeSel + (event.key === Qt.Key_Backtab ? -1 : 1)
+                                 + root.arrangeRects.length) % root.arrangeRects.length
+            else if (event.key === Qt.Key_Left || event.key === Qt.Key_H) root.nudgeArrange(-1, 0)
+            else if (event.key === Qt.Key_Right || event.key === Qt.Key_L) root.nudgeArrange(1, 0)
+            else if (event.key === Qt.Key_Up || event.key === Qt.Key_K) root.nudgeArrange(0, -1)
+            else if (event.key === Qt.Key_Down || event.key === Qt.Key_J) root.nudgeArrange(0, 1)
+            event.accepted = true
+            return
+          }
+
           // The chooser owns the keyboard while it's up, so Esc dismisses it
           // rather than the whole panel.
           if (root.chooser !== null) {
@@ -1328,6 +1471,166 @@ Item {
             opacity: 0.4
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
+          }
+        }
+      }
+
+      // ---------------------------------------------------- arrange editor
+      // A to-scale mini-map of the enabled monitors' logical rects. Drag a
+      // box (or tab + arrows) to move it; edges snap to neighbours; nothing
+      // is applied until ↵. The top-left of the layout becomes 0,0 on apply.
+      Item {
+        id: arrangeLayer
+        anchors.fill: parent
+        z: 11
+        visible: root.arranging
+
+        Rectangle {
+          anchors.fill: parent
+          color: root.background
+          opacity: 0.85
+        }
+
+        MouseArea {
+          anchors.fill: parent
+          onClicked: root.cancelArrange()
+        }
+
+        Rectangle {
+          id: arrangeBox
+          anchors.centerIn: parent
+          width: Math.min(Style.space(560), card.width - Style.space(60))
+          height: arrHead.implicitHeight + arrCanvas.height + arrFoot.implicitHeight
+                  + Style.spacing.xxxl * 2 + Style.spacing.md * 2
+          radius: root.cornerRadius
+          color: root.background
+          border.width: Math.max(1, Style.space(2))
+          border.color: root.accent
+
+          MouseArea { anchors.fill: parent; onClicked: {} }
+
+          Column {
+            id: arrHead
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.leftMargin: Style.spacing.xxxl
+            anchors.rightMargin: Style.spacing.xxxl
+            anchors.topMargin: Style.spacing.xxxl
+            spacing: Style.spacing.sm
+
+            Text {
+              width: parent.width
+              text: "Arrange monitors"
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.subtitle
+              font.bold: true
+            }
+
+            Text {
+              width: parent.width
+              text: "Drag the boxes — edges snap to neighbours. The 󰓎 box sits at 0,0 (main)."
+              color: root.foreground
+              opacity: 0.45
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.Wrap
+            }
+          }
+
+          Item {
+            id: arrCanvas
+            anchors.top: arrHead.bottom
+            anchors.topMargin: Style.spacing.md
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.leftMargin: Style.spacing.xxxl
+            anchors.rightMargin: Style.spacing.xxxl
+            height: Style.space(280)
+
+            readonly property real pad: Style.space(16)
+            readonly property real bMinX: { var v = Infinity, rs = root.arrangeRects; for (var i = 0; i < rs.length; i++) if (rs[i].x < v) v = rs[i].x; return rs.length ? v : 0 }
+            readonly property real bMinY: { var v = Infinity, rs = root.arrangeRects; for (var i = 0; i < rs.length; i++) if (rs[i].y < v) v = rs[i].y; return rs.length ? v : 0 }
+            readonly property real bMaxX: { var v = -Infinity, rs = root.arrangeRects; for (var i = 0; i < rs.length; i++) if (rs[i].x + rs[i].w > v) v = rs[i].x + rs[i].w; return rs.length ? v : 1 }
+            readonly property real bMaxY: { var v = -Infinity, rs = root.arrangeRects; for (var i = 0; i < rs.length; i++) if (rs[i].y + rs[i].h > v) v = rs[i].y + rs[i].h; return rs.length ? v : 1 }
+            readonly property real sc: Math.min(
+              (width - pad * 2) / Math.max(1, bMaxX - bMinX),
+              (height - pad * 2) / Math.max(1, bMaxY - bMinY))
+            readonly property real offX: (width - (bMaxX - bMinX) * sc) / 2
+            readonly property real offY: (height - (bMaxY - bMinY) * sc) / 2
+
+            Repeater {
+              model: root.arrangeRects
+
+              delegate: Rectangle {
+                id: monRect
+                required property var modelData
+                required property int index
+
+                readonly property bool monSel: index === root.arrangeSel
+                // Top-left of the layout — becomes 0,0 (main) on apply.
+                readonly property bool atOrigin: modelData.x === arrCanvas.bMinX && modelData.y === arrCanvas.bMinY
+
+                x: arrCanvas.offX + (modelData.x - arrCanvas.bMinX) * arrCanvas.sc
+                y: arrCanvas.offY + (modelData.y - arrCanvas.bMinY) * arrCanvas.sc
+                width: Math.max(Style.space(40), modelData.w * arrCanvas.sc)
+                height: Math.max(Style.space(28), modelData.h * arrCanvas.sc)
+                radius: Style.space(4)
+                color: monRect.monSel ? root.selBg : root.background
+                border.width: Math.max(1, Style.space(2))
+                border.color: monRect.monSel ? root.accent : Qt.alpha(root.foreground, 0.45)
+
+                Column {
+                  anchors.centerIn: parent
+                  spacing: Style.spacing.xxs
+
+                  Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: (monRect.atOrigin ? "󰓎 " : "") + monRect.modelData.name
+                    color: monRect.monSel ? root.selText : root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.body
+                    font.bold: true
+                  }
+
+                  Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: monRect.modelData.w + "x" + monRect.modelData.h
+                    color: monRect.monSel ? root.selText : root.foreground
+                    opacity: 0.55
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                  }
+                }
+
+                MouseArea {
+                  anchors.fill: parent
+                  cursorShape: Qt.SizeAllCursor
+                  drag.target: monRect
+                  onPressed: root.arrangeSel = monRect.index
+                  onReleased: root.commitArrangeRect(monRect.index,
+                    (monRect.x - arrCanvas.offX) / arrCanvas.sc + arrCanvas.bMinX,
+                    (monRect.y - arrCanvas.offY) / arrCanvas.sc + arrCanvas.bMinY)
+                }
+              }
+            }
+          }
+
+          Text {
+            id: arrFoot
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.leftMargin: Style.spacing.xxxl
+            anchors.rightMargin: Style.spacing.xxxl
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: Style.spacing.xxxl
+            text: "drag · tab select · ←↑↓→ nudge · ↵ apply · esc cancel"
+            color: root.foreground
+            opacity: 0.4
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            elide: Text.ElideRight
           }
         }
       }

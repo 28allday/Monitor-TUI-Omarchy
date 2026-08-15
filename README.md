@@ -8,6 +8,12 @@ It's a superset of the stock **Display** panel, so on first open it retires the 
   <img src="docs/panel.png" width="700">
 </p>
 
+With more than one monitor, every display gets its own section — including on/off, position, and a main-monitor switch — and the arrangement editor lets you drag them into place:
+
+<p align="center">
+  <img src="docs/arrange.png" width="700">
+</p>
+
 > **v0.2.0 rewrote this project.** It used to be a bash TUI (`monitor-tui.sh`); it is now a QML panel with a bar icon, installed through Omarchy's plugin system. The old TUI lives in git history — if you had it installed, see [Migrating from the TUI](#migrating-from-the-tui).
 
 ## Install
@@ -34,6 +40,8 @@ o.bind("SUPER + ALT + M", "Monitor settings", "omarchy-shell shell toggle nosign
 | **Refresh rate** | Part of the mode picker — 60Hz, 144Hz, 240Hz, whatever the panel offers |
 | **Scaling** | Presets from 1x to 2x, including the fractional ones Hyprland accepts |
 | **Position** | Auto, left/right/above/below the other monitors — coordinates computed from their *logical* (scaled, rotated) sizes |
+| **Arrange** | A to-scale mini-map of your monitors — drag them into place (or tab + arrows), edges snap to neighbours, ↵ applies live |
+| **Main monitor** | One keypress puts a monitor at 0,0 — where the first workspace and fullscreen games land — shifting the others to keep the layout |
 | **Rotation** | Normal, 90°, 180°, 270° |
 | **VRR** | Toggle Variable Refresh Rate (FreeSync/G-Sync) per monitor |
 | **Display on/off** | Enable/disable individual monitors (the last enabled one is protected) |
