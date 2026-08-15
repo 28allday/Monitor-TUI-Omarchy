@@ -263,7 +263,7 @@ need a hands-on pass.
 - [x] Lid-safe save: with eDP runtime-disabled, save writes its full spec
       with `position = "auto"`, never `disabled = true`
 - [ ] Keybinding works with the bar icon removed (self-reference)
-- [x] Brightness: external DDC/CI (4K BenQ) answers in ~0.3 s with a
+- [x] Brightness: external DDC/CI (4K display) answers in ~0.3 s with a
       correct percent; laptop-backlight row (amdgpu_bl2) ←/→ still needs a
       hands-on check
 - [ ] Text size ←/→ steps the shell font and the row tracks Style.font.baseSize
