@@ -147,6 +147,18 @@ removing the headless one if you tested "set main".
   Deliberately disabled *external* outputs still persist as disabled.
   Trade-off: an internal panel disabled by hand in the panel comes back on
   the next config reload — safe beats sticky for the built-in screen.
+- **Hyprland accepts overlapping layouts but fires its "monitor layout is
+  set up incorrectly" banner** (screen notification only — nothing in the
+  log, nothing on hyprctl's stdout, so runApply can't catch it). Found
+  2026-08-15: a drag in the arrange editor dropped a monitor 40 px into
+  its neighbour — snap only helps within 60 px of an edge — and every
+  apply after that flashed the banner. Two-part fix: applyArrange refuses
+  an overlapping layout (footer warning + urgent borders on the clashing
+  boxes, `rectOverlaps()`), and all multi-monitor applies (arrange,
+  set-main, preset) are batched into ONE `hyprctl eval` — applied one at
+  a time, even a valid target layout passes through a transient overlap
+  (A moved, B not yet) and trips the banner; batched, Hyprland never sees
+  one (verified on hardware).
 - **Re-enabling a monitor needs an EXPLICIT `disabled = false`.** A spec
   that merely omits `disabled` does not clear a runtime disable — hyprctl
   eval answers "ok" and nothing changes (cost the Enabled toggle its
@@ -176,7 +188,10 @@ need a hands-on pass.
 - [x] Multi-monitor: coordinates sane on real dual-head (external 0,0 +
       eDP 2560,98 round-trips through save/restore exactly)
 - [ ] Multi-monitor: "Set main" via the UI on real dual-head
-- [ ] Multi-monitor: arrange editor — real mouse DRAG + edge snap
+- [x] Multi-monitor: arrange editor — keyboard path verified on hardware
+      (open, tab-select, nudge, overlap refusal with footer warning + red
+      borders, clean apply, positions stick); real mouse DRAG still needs
+      a hands-on check
 - [x] Multi-monitor: Enabled toggle disables/re-enables both external and
       internal (re-enable needs the explicit `disabled = false` fix); UI
       toggle verified on hardware for the external

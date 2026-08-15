@@ -794,6 +794,30 @@ Item {
   property bool arranging: false
   property var arrangeRects: []    // [{ name, x, y, w, h }] logical px
   property int arrangeSel: 0
+  property string arrangeWarn: ""
+
+  // True when rect idx overlaps any other. Hyprland accepts overlapping
+  // layouts but fires its "set up incorrectly" banner and misbehaves, so
+  // apply is gated on this (drag/snap can legitimately pass through
+  // overlapping states while editing — only committing one is an error).
+  function rectOverlaps(idx) {
+    var rs = root.arrangeRects
+    if (idx < 0 || idx >= rs.length) return false
+    var a = rs[idx]
+    for (var i = 0; i < rs.length; i++) {
+      if (i === idx) continue
+      var b = rs[i]
+      if (a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h)
+        return true
+    }
+    return false
+  }
+
+  function anyArrangeOverlap() {
+    for (var i = 0; i < root.arrangeRects.length; i++)
+      if (root.rectOverlaps(i)) return true
+    return false
+  }
 
   // "Main" = the monitor at origin. That is the honest Hyprland meaning:
   // there is no primary-output flag, but 0,0 is where the first workspace
@@ -816,7 +840,9 @@ Item {
                                      (Number(o.x) + dx) + "x" + (Number(o.y) + dy),
                                      root.fmtScale(o.scale), Number(o.transform), o.vrr === true))
     }
-    root.runApply(specs)
+    // Batched into one eval — see applyArrange for why (transient overlap
+    // mid-sequence trips Hyprland's layout banner).
+    root.runApply([specs.join("; ")])
   }
 
   function openArrange() {
@@ -830,12 +856,14 @@ Item {
     if (rects.length < 2) return
     root.arrangeRects = rects
     root.arrangeSel = 0
+    root.arrangeWarn = ""
     root.arranging = true
   }
 
   function cancelArrange() {
     root.arranging = false
     root.arrangeRects = []
+    root.arrangeWarn = ""
   }
 
   // Snap one edge pair per axis: align-left/right/top/bottom with, or butt
@@ -865,6 +893,7 @@ Item {
     rects[idx] = root.snapRect(r, idx)
     root.arrangeRects = rects
     root.arrangeSel = idx
+    root.arrangeWarn = ""
   }
 
   function nudgeArrange(dx, dy) {
@@ -873,6 +902,7 @@ Item {
     var r = rects[root.arrangeSel]
     rects[root.arrangeSel] = { name: r.name, x: r.x + dx * 40, y: r.y + dy * 40, w: r.w, h: r.h }
     root.arrangeRects = rects
+    root.arrangeWarn = ""
   }
 
   // Normalize so the top-left of the layout sits at 0,0 (negative
@@ -880,6 +910,12 @@ Item {
   // then apply live — one hl.monitor eval per monitor.
   function applyArrange() {
     if (root.arrangeRects.length < 2) { root.cancelArrange(); return }
+    // Refuse to commit an overlapping layout: Hyprland would take it but
+    // fire its "monitor layout is set up incorrectly" banner at the user.
+    if (root.anyArrangeOverlap()) {
+      root.arrangeWarn = "Monitors overlap — drag them apart before applying"
+      return
+    }
     var minX = Infinity, minY = Infinity
     var i
     for (i = 0; i < root.arrangeRects.length; i++) {
@@ -896,7 +932,10 @@ Item {
                                      root.fmtScale(m.scale), Number(m.transform), m.vrr === true))
     }
     root.cancelArrange()
-    root.runApply(specs)
+    // One eval for the whole layout: sequential applies pass through
+    // transient overlaps (monitor A moved, B not yet) and Hyprland fires
+    // its overlap banner for those too. Batched, it never sees one.
+    root.runApply([specs.join("; ")])
   }
 
   // ---------------------------------------------------------------- actions
@@ -1014,7 +1053,8 @@ Item {
       specs.push(root.luaMonitorExpr(m.name, "preferred", "auto", s,
                                      Number(m.transform), m.vrr === true))
     }
-    root.runApply(specs)
+    // Batched into one eval — see applyArrange for why.
+    root.runApply([specs.join("; ")])
   }
 
   // Specs run one at a time through applyProc so hyprctl's answer is read for
@@ -1670,6 +1710,8 @@ Item {
                 required property int index
 
                 readonly property bool monSel: index === root.arrangeSel
+                // Re-evaluated on every arrangeRects reassignment.
+                readonly property bool clash: root.rectOverlaps(monRect.index)
                 // Top-left of the layout — becomes 0,0 (main) on apply.
                 readonly property bool atOrigin: modelData.x === arrCanvas.bMinX && modelData.y === arrCanvas.bMinY
 
@@ -1680,7 +1722,8 @@ Item {
                 radius: Style.space(4)
                 color: monRect.monSel ? root.selBg : root.background
                 border.width: Math.max(1, Style.space(2))
-                border.color: monRect.monSel ? root.accent : Qt.alpha(root.foreground, 0.45)
+                border.color: monRect.clash ? root.urgent
+                              : monRect.monSel ? root.accent : Qt.alpha(root.foreground, 0.45)
 
                 Column {
                   anchors.centerIn: parent
@@ -1740,9 +1783,10 @@ Item {
             anchors.rightMargin: Style.spacing.xxxl
             anchors.bottom: parent.bottom
             anchors.bottomMargin: Style.spacing.xxxl
-            text: "drag · tab select · ←↑↓→ nudge · ↵ apply · esc cancel"
-            color: root.foreground
-            opacity: 0.4
+            text: root.arrangeWarn !== "" ? root.arrangeWarn
+                  : "drag · tab select · ←↑↓→ nudge · ↵ apply · esc cancel"
+            color: root.arrangeWarn !== "" ? root.urgent : root.foreground
+            opacity: root.arrangeWarn !== "" ? 0.9 : 0.4
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
             elide: Text.ElideRight
