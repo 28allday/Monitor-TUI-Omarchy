@@ -202,6 +202,16 @@ removing the headless one if you tested "set main".
   batched into the same eval — growth stays adjacent, shrink closes the gap.
   Verified both directions on hardware (2x↔1.875x with the external at the
   eDP's right edge).
+- **A gap between monitors strands the cursor** — it can only cross where
+  edges touch exactly, so a drag that dropped a monitor 896px away from its
+  neighbour (snap only reaches 60px) left the built-in panel unreachable by
+  mouse and looked like "cursor invisible on the second screen" (hunted as
+  a rendering bug for a while: hardware-cursor state, software cursors —
+  all red herrings; `hyprctl cursorpos` pinned at the reachable monitor's
+  far edge was the tell). applyArrange now refuses disconnected layouts
+  (`rectsTouch`/`arrangeConnected` — exact edge contact with span overlap,
+  flood fill for >2 monitors) with a footer warning, same pattern as the
+  overlap refusal.
 - **Hyprland accepts overlapping layouts but fires its "monitor layout is
   set up incorrectly" banner** (screen notification only — nothing in the
   log, nothing on hyprctl's stdout, so runApply can't catch it). Found

@@ -819,6 +819,39 @@ Item {
     return false
   }
 
+  // Edge-to-edge contact (with actual span overlap on the shared axis).
+  // The cursor can only cross where edges touch exactly, so a layout with
+  // a gap strands it on one side — learned the hard way when a drag left
+  // an 896px gap and the built-in panel became unreachable by mouse.
+  function rectsTouch(a, b) {
+    var horiz = (a.x + a.w === b.x || b.x + b.w === a.x)
+                && a.y < b.y + b.h && b.y < a.y + a.h
+    var vert = (a.y + a.h === b.y || b.y + b.h === a.y)
+               && a.x < b.x + b.w && b.x < a.x + a.w
+    return horiz || vert
+  }
+
+  // Every rect reachable from the first via touching edges.
+  function arrangeConnected() {
+    var rs = root.arrangeRects
+    if (rs.length < 2) return true
+    var seen = [true], i, j
+    for (i = 1; i < rs.length; i++) seen.push(false)
+    var grew = true
+    while (grew) {
+      grew = false
+      for (i = 0; i < rs.length; i++) {
+        if (seen[i]) continue
+        for (j = 0; j < rs.length; j++) {
+          if (i !== j && seen[j] && root.rectsTouch(rs[i], rs[j])) {
+            seen[i] = true; grew = true; break
+          }
+        }
+      }
+    }
+    return seen.indexOf(false) === -1
+  }
+
   // "Main" = the monitor at origin. That is the honest Hyprland meaning:
   // there is no primary-output flag, but 0,0 is where the first workspace
   // lands and where fullscreen games default to.
@@ -914,6 +947,10 @@ Item {
     // fire its "monitor layout is set up incorrectly" banner at the user.
     if (root.anyArrangeOverlap()) {
       root.arrangeWarn = "Monitors overlap — drag them apart before applying"
+      return
+    }
+    if (!root.arrangeConnected()) {
+      root.arrangeWarn = "Gap between monitors — the cursor can't cross it; snap the edges together"
       return
     }
     var minX = Infinity, minY = Infinity
